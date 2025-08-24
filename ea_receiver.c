@@ -1,6 +1,7 @@
 /*
 ea_receiver - A lightweight Elster EnergyAxis Receiver
 Copyright (C) 2016 Shaun R. Hey <shaun@shaunhey.com>
+Copyright (C) 2025 M. Greyson Christoforo <grey@christoforo.net>
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -26,6 +27,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string.h>
 
 #define DEFAULT_NUM_CHANNELS  6
+#define DEFAULT_DEBUG  0
+#define DEFAULT_METER  0
 
 #define BLOCK_SIZE      16384 // Number of samples to read at a time per channel
 #define MODE_1          0 // 35.5555kBaud, manchester encoded
@@ -36,7 +39,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MODE_2_PREAMBLE 0xAAAAAAAA9A99A656 // Preamble + Syncword
 #define MODE_1_XOR_KEY  0x55 // Each byte after the preamble and syncword is
 #define MODE_2_XOR_KEY  0xAA // XOR'd with one of these values
-#define NOISE_THRESHOLD 5 // Number of noisy samples to tolerate
+#define NOISE_THRESHOLD 254 // Number of noisy samples to tolerate
 
 #define STATE_SEARCHING         0 // Searching for preamble + syncword
 #define STATE_RECEIVING_MSG_LEN 1 // ...found, receiving message length
@@ -45,6 +48,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 struct program_options {
   FILE    *input;
   uint8_t  num_channels;
+  uint8_t  debug;
+  uint8_t  meter;
 } o;
 
 struct globals {
@@ -52,16 +57,34 @@ struct globals {
   uint8_t state;
 } g;
 
+struct __attribute__((packed, scalar_storage_order("big-endian"))) BEuint16t {
+  uint16_t a;
+};
+
+struct __attribute__((packed, scalar_storage_order("big-endian"))) StructureA {
+  uint8_t flag;
+  uint32_t src;
+  uint32_t dst;
+};
+
+struct __attribute__((packed, scalar_storage_order("little-endian"))) Structure23 {
+  uint8_t unknown[15];
+  uint32_t reading100x;
+};
+
+
 float u8f_table[UINT8_MAX];
 
 void usage()
 {
   fprintf(stderr,
-      "ea_receiver - A lightweight Elster EnergyAxis receiver\n"
+      "ea_receiver - A lightweight Elster EnergyAxis receiver and electrical meter message decoder\n"
       "Usage: ea_receiver [options] FILE\n"
       "\n"
       "  FILE        Unsigned 8-bit IQ file to process (or \"-\" for stdin)\n"
       "  -c N        Number of 400kHz channels to receive (1-255, default 6)\n"
+      "  -d N        Debug prints for decoding (0-1, default 0)\n"
+      "  -m N        Print electrical meter readings in the format LAN ID:kWh (0-1, default 0)\n"
       "\n");
 }
 
@@ -103,15 +126,104 @@ bool validate_crc(uint8_t *msg, uint16_t len)
   return (calculated_crc == expected_crc ? true : false);
 }
 
+// Decode the message in order to print a power meter reading (if any)
+void decode_msg(uint8_t *msg, uint16_t len)
+{
+  uint16_t payload_len = 0;
+  uint8_t *payload;
+  uint8_t *cmd_payload;
+  struct BEuint16t* be_uint16t_ptr;
+  struct StructureA* struct_a;
+  struct Structure23* struct_23;
+  uint16_t cmd_start = 0;
+  uint16_t cmd_len = 0;
+  uint16_t cmd = 0;
+  //float meter_reading = 0;  // in kWh
+  uint32_t meter_reading = 0;  // in daWh
+
+  if (msg[0] == 0x00) {
+    be_uint16t_ptr = (struct BEuint16t*)msg;
+    payload_len = be_uint16t_ptr->a;
+    payload = &msg[2];
+    cmd_start = 20;
+  } else {
+    payload_len = (uint16_t) msg[0];
+    payload = &msg[1];
+    cmd_start = 15;
+  }
+
+  struct_a = (struct StructureA*)payload;
+
+  if ((0x80000000 & struct_a->src) == 0) {
+    if (payload_len > cmd_start){
+      cmd_len = payload[cmd_start];
+      if (payload_len > cmd_start + cmd_len) {
+        cmd_payload = &payload[cmd_start+1];
+        cmd = cmd_payload[1];
+      }
+    }
+
+    if (cmd == 0x23) {
+      if (cmd_len >= sizeof(struct_23)) {
+        struct_23 = (struct Structure23*)cmd_payload;
+        meter_reading = struct_23->reading100x;  // in daWh
+        //meter_reading = ((float) struct_23->reading100x) / 100.0;  // in kWh
+      }
+    }
+  }
+
+  // for testing
+  //meter_reading = 3328483;
+
+  if (o.debug == 1) {
+    for (uint16_t i = 0; i < len; i++) {
+      printf("%02x", msg[i]);
+    }
+    printf("::");
+    printf("len=%u", payload_len);
+    printf(" flag=0x%02x", struct_a->flag);
+    printf(" src=%u", struct_a->src);
+    printf(" dst=%u", struct_a->dst);
+    printf(" cmd_len=%u", cmd_len);
+    printf(" cmd=0x%02x", cmd);
+    printf(" meter=%u.", meter_reading/100);
+    printf("%u", meter_reading%100);
+    //printf(" meter=%.2f", meter_reading);
+    printf(" ");
+  } else {
+    if (meter_reading > 0) {
+      printf("%u:", struct_a->src);
+      printf("%u.", meter_reading/100);
+      printf("%u", meter_reading%100);
+      //printf("%u:%.2f", struct_a->src, meter_reading);
+    }
+  }
+
+  if ((o.debug == 1) || (meter_reading > 0)) {
+    printf("\n");
+    fflush(stdout);
+  }
+}
+
+// Print all the message bytes to the terminal
+void print_msg(uint8_t *msg, uint16_t len)
+{
+  for (uint16_t i = 0; i < len; i++) {
+    printf("%02x", msg[i]);
+  }
+  printf("\n");
+  fflush(stdout);
+}
+
 // Called when a message has been received
 void on_message(uint8_t *msg, uint16_t len)
 {
   if (validate_crc(msg, len)) {
-    for (uint16_t i = 0; i < len; i++) {
-      printf("%02x", msg[i]);
+    if (o.debug == 0 && o.meter == 0) {
+      print_msg(msg, len);
+    } else {
+      decode_msg(msg, len);
     }
-    printf("\n");
-    fflush(stdout);
   }
 }
 
@@ -320,8 +432,10 @@ int main(int argc, char *argv[])
   int opt, val;
 
   o.num_channels = DEFAULT_NUM_CHANNELS;
+  o.debug = DEFAULT_DEBUG;
+  o.meter = DEFAULT_METER;
 
-  while ((opt = getopt(argc, argv, "c:")) != -1) {
+  while ((opt = getopt(argc, argv, "m:c:d:")) != -1) {
     switch (opt) {
       case 'c':
         val = atoi(optarg);
@@ -329,6 +443,24 @@ int main(int argc, char *argv[])
           o.num_channels = (uint8_t)val;
         } else {
           fprintf(stderr, "Number of channels out of range!\n");
+          exit(EXIT_FAILURE);
+        }
+        break;
+      case 'd':
+        val = atoi(optarg);
+        if (val > 0 && val <= 1) {
+          o.debug = (uint8_t)val;
+        } else {
+          fprintf(stderr, "debug out of range!\n");
+          exit(EXIT_FAILURE);
+        }
+        break;
+      case 'm':
+        val = atoi(optarg);
+        if (val > 0 && val <= 1) {
+          o.meter = (uint8_t)val;
+        } else {
+          fprintf(stderr, "meter out of range!\n");
           exit(EXIT_FAILURE);
         }
         break;

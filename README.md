@@ -10,13 +10,30 @@ Please be aware that ea_receiver makes a number of tradeoffs which affects how w
 
 ## Usage
 ```
-ea_receiver - A lightweight Elster EnergyAxis receiver
+ea_receiver - A lightweight Elster EnergyAxis receiver and electrical meter message decoder
 Usage: ea_receiver [options] FILE
 
   FILE        Unsigned 8-bit IQ file to process (or "-" for stdin)
   -c N        Number of 400kHz channels to receive (1-255, default 6)
+  -d N        Debug prints for decoding (0-1, default 0)
+  -m N        Print electrical meter readings in the format LAN ID:kWh (0-1, default 0)
 ```
 ####Examples
+Print the energy counters of nearby electrical meters. I've seen reports from my meter every 4-6 hours at most so you might have to wait a while.
+```
+rtl_sdr -g20 -f 910.6e6 -s 2.4e6 - | ea_receiver -m1 -
+41256987:178770.15
+```
+The format is `LAN ID:kWh`.
+
+Send the readings somewhere via mqttui:
+```
+export MQTTUI_BROKER="mqtt://192.168.1.1:1883"
+export MQTTUI_USERNAME="mqttuser"
+export MQTTUI_PASSWORD="mqttpassword"
+rtl_sdr -g20 -f 910.6e6 -s 2.4e6 - | ea_receiver -m1 - | stdbuf -oL cut --output-delimiter=' ' -d':' -f1,2 | xargs -L1 sh -c 'mqttui publish --retain elster/$1 "{\"kWh\":"$2", \"timestamp\":"$EPOCHREALTIME"}"' _
+```
+
 By default, a sample rate of 2.4Msps is expected. This provides for six 400kHz channels. Since the number of channels is even, the tuning freqency will actually be between the 3rd and 4th channels.
 ```
 $ rtl_sdr -f 903.8e6 -s 2.4e6 - | ea_receiver -
