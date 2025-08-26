@@ -69,7 +69,7 @@ struct __attribute__((packed, scalar_storage_order("big-endian"))) StructureA {
 
 struct __attribute__((packed, scalar_storage_order("little-endian"))) Structure23 {
   uint8_t unknown[15];
-  uint32_t reading100x;
+  uint32_t reading1000x;
 };
 
 
@@ -166,8 +166,8 @@ void decode_msg(uint8_t *msg, uint16_t len)
     if (cmd == 0x23) {
       if (cmd_len >= sizeof(struct_23)) {
         struct_23 = (struct Structure23*)cmd_payload;
-        meter_reading = struct_23->reading100x;  // in daWh
-        //meter_reading = ((float) struct_23->reading100x) / 100.0;  // in kWh
+        meter_reading = struct_23->reading1000x;  // in Wh
+        //meter_reading = ((float) struct_23->reading100x) / 1000.0;  // in kWh
       }
     }
   }
@@ -186,8 +186,8 @@ void decode_msg(uint8_t *msg, uint16_t len)
     printf(" dst=%u", struct_a->dst);
     printf(" cmd_len=%u", cmd_len);
     printf(" cmd=0x%02x", cmd);
-    printf(" meter=%u.", meter_reading/100);
-    printf("%u", meter_reading%100);
+    printf(" meter=%u.", meter_reading/1000);
+    printf("%u", meter_reading%1000);
     //printf(" meter=%.2f", meter_reading);
     printf(" ");
   } else {
