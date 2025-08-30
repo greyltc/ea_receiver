@@ -193,8 +193,8 @@ void decode_msg(uint8_t *msg, uint16_t len)
   } else {
     if (meter_reading > 0) {
       printf("%u:", struct_a->src);
-      printf("%u.", meter_reading/100);
-      printf("%u", meter_reading%100);
+      printf("%u.", meter_reading/1000);
+      printf("%u", meter_reading%1000);
       //printf("%u:%.2f", struct_a->src, meter_reading);
     }
   }
