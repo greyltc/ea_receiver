@@ -68,7 +68,14 @@ struct __attribute__((packed, scalar_storage_order("big-endian"))) StructureA {
 };
 
 struct __attribute__((packed, scalar_storage_order("little-endian"))) Structure23 {
-  uint8_t unknown[15];
+  uint8_t unknown0[8];
+  uint8_t YY;
+  uint8_t MM;
+  uint8_t DD;
+  uint8_t hh;
+  uint8_t mm;
+  uint8_t ss;
+  uint8_t unknown1;
   uint32_t reading1000x;
 };
 
@@ -139,7 +146,13 @@ void decode_msg(uint8_t *msg, uint16_t len)
   uint16_t cmd_len = 0;
   uint16_t cmd = 0;
   //float meter_reading = 0;  // in kWh
-  uint32_t meter_reading = 0;  // in daWh
+  uint32_t meter_reading = 0;  // in Wh
+  uint16_t YY = 0;
+  uint8_t MM = 0;
+  uint8_t DD = 0;
+  uint8_t hh = 0;
+  uint8_t mm = 0;
+  uint8_t ss = 0;
 
   if (msg[0] == 0x00) {
     be_uint16t_ptr = (struct BEuint16t*)msg;
@@ -167,13 +180,25 @@ void decode_msg(uint8_t *msg, uint16_t len)
       if (cmd_len >= sizeof(struct_23)) {
         struct_23 = (struct Structure23*)cmd_payload;
         meter_reading = struct_23->reading1000x;  // in Wh
-        //meter_reading = ((float) struct_23->reading100x) / 1000.0;  // in kWh
+        //meter_reading = ((float) struct_23->reading1000x) / 1000.0;  // in kWh
+        YY = struct_23->YY + 2000;
+        MM = struct_23->MM;
+        DD = struct_23->DD;
+        hh = struct_23->hh;
+        mm = struct_23->mm;
+        ss = struct_23->ss;
       }
     }
   }
 
   // for testing
   //meter_reading = 3328483;
+  //YY = 2025;
+  //MM = 9;
+  //DD = 2;
+  //hh = 17;
+  //mm = 33;
+  //ss = 14;
 
   if (o.debug == 1) {
     for (uint16_t i = 0; i < len; i++) {
@@ -189,10 +214,17 @@ void decode_msg(uint8_t *msg, uint16_t len)
     printf(" meter=%u.", meter_reading/1000);
     printf("%u", meter_reading%1000);
     //printf(" meter=%.2f", meter_reading);
+    printf(" YY=%u.", YY);
+    printf(" MM=%u.", MM);
+    printf(" DD=%u.", DD);
+    printf(" hh=%u.", hh);
+    printf(" mm=%u.", mm);
+    printf(" ss=%u.", ss);
     printf(" ");
   } else {
     if (meter_reading > 0) {
-      printf("%u:", struct_a->src);
+      printf("%u@", struct_a->src);
+      printf("%04u-%02u-%02uT%02u:%02u:%02u=", YY, MM, DD, hh, mm, ss);
       printf("%u.", meter_reading/1000);
       printf("%u", meter_reading%1000);
       //printf("%u:%.2f", struct_a->src, meter_reading);
