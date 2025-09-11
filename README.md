@@ -31,7 +31,7 @@ Send the readings somewhere via mqttui:
 export MQTTUI_BROKER="mqtt://192.168.1.1:1883"
 export MQTTUI_USERNAME="mqttuser"
 export MQTTUI_PASSWORD="mqttpassword"
-rtl_sdr -g20 -f 910.6e6 -s 2.4e6 - | ea_receiver -m1 - | tee -a /tmp/ea_rx.log.txt | tr '@=' '__' | stdbuf -oL cut --output-delimiter=' ' -d'_' -f1,2,3 | xargs -L1 sh -c 'mqttui publish --retain elster/$1 "{\"kWh\": "$3", \"timestamp\": \"$2\"}"' _
+rtl_sdr -g20 -f 910.6e6 -s 2.4e6 - | ea_receiver -m1 - | tee -a /tmp/ea_rx.log.txt | tr '@=' '__' | stdbuf -oL cut --output-delimiter=' ' -d'_' -f1,2,3 | xargs -L1 sh -c 'mqttui publish --retain elster/$1 "{\"timestamp\": \"$2\", \"kWh\": "$3"}"' _
 ```
 
 By default, a sample rate of 2.4Msps is expected. This provides for six 400kHz channels. Since the number of channels is even, the tuning freqency will actually be between the 3rd and 4th channels.
